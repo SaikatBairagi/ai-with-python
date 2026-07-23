@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 
 import json
 import github_api
+import streamlit as st
 
 
 # Load Environment
@@ -53,6 +54,82 @@ tools = [
             "required": ["repository"],
         },
     },
+    {
+        "type": "function",
+        "name": "list_commits",
+        "description": (
+            "List recent commits from a GitHub repository. "
+            "Use this when the user asks about recent changes, "
+            "commit history, authors, or the latest commit."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "repository": {
+                    "type": "string",
+                    "description": "GitHub repository name.",
+                },
+                "branch": {
+                    "type": ["string", "null"],
+                    "description": (
+                        "Optional branch name, tag, or commit SHA. "
+                        "Use null to use the repository default branch."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Number of commits to return.",
+                    "minimum": 1,
+                    "maximum": 100,
+                },
+            },
+            "required": [
+                "repository",
+                "branch",
+                "limit",
+            ],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "type": "function",
+        "name": "list_repository_files",
+        "description": (
+            "List files and folders in a GitHub repository directory. "
+            "Use an empty path to list the repository root."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "repository": {
+                    "type": "string",
+                    "description": "GitHub repository name.",
+                },
+                "path": {
+                    "type": "string",
+                    "description": (
+                        "Directory path inside the repository. "
+                        "Use an empty string for the root directory."
+                    ),
+                },
+                "branch": {
+                    "type": ["string", "null"],
+                    "description": (
+                        "Optional branch, tag, or commit SHA. "
+                        "Use null for the default branch."
+                    ),
+                },
+            },
+            "required": [
+                "repository",
+                "path",
+                "branch",
+            ],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
 ]
 
 # Initializeing tool list
@@ -60,6 +137,8 @@ TOOLS_LIST = {
     "get_repository_by_user": github_api.get_repository_by_user,
     "get_repository_details": github_api.get_repository_details,
     "list_branches": github_api.list_branches,
+    "list_commits": github_api.list_commits,
+    "list_repository_files": github_api.list_repository_files,
 }
 
 
@@ -107,24 +186,66 @@ def run_agent(messages: list[dict], max_turns: int = 4) -> str:
     return "Decision not achieved in this iteration!!!"
 
 
-def chat() -> None:
-    """A minimal terminal REPL. conversation_memory is the agent's entire
-    memory -- a plain list, grown by run_agent() on every turn.
-    """
-    messages: list[dict] = []
-    print("Type a question (Ctrl+C to quit).")
+# ---------- Streamlit frontend ----------
 
-    while True:
-        try:
-            user_input = input("You: ")
-        except KeyboardInterrupt, EOFError:
-            print("\nExiting.")
-            break
+st.set_page_config(
+    page_title="Project Zero Agent",
+    page_icon="🤖",
+)
 
-        messages.append({"role": "user", "content": user_input})
-        answer = run_agent(messages)
-        print(f"Agent: {answer}\n")
+st.title("Project Zero Agent")
+st.caption("Weather agent")
 
 
-if __name__ == "__main__":
-    chat()
+# Only user/assistant text displayed on screen
+if "ui_messages" not in st.session_state:
+    st.session_state.ui_messages = []
+
+
+# Full OpenAI conversation, including tool calls
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+
+# Display previous user and assistant messages
+for message in st.session_state.ui_messages:
+    with st.chat_message(message["role"]):
+        st.write(message["content"])
+
+
+user_input = st.chat_input("Ask about the weather...")
+
+
+if user_input:
+    # Add user message to UI history
+    st.session_state.ui_messages.append(
+        {
+            "role": "user",
+            "content": user_input,
+        }
+    )
+
+    # Add user message to OpenAI conversation
+    st.session_state.messages.append(
+        {
+            "role": "user",
+            "content": user_input,
+        }
+    )
+
+    with st.chat_message("user"):
+        st.write(user_input)
+
+    with st.chat_message("assistant"):
+        with st.spinner("Thinking..."):
+            answer = run_agent(st.session_state.messages)
+
+        st.write(answer)
+
+    # Save assistant answer for future Streamlit reruns
+    st.session_state.ui_messages.append(
+        {
+            "role": "assistant",
+            "content": answer,
+        }
+    )
